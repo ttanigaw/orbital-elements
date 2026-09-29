@@ -106,6 +106,7 @@ app.innerHTML = `
           ${displayToggle('reference-plane', 'REFERENCE PLANE')}
           ${displayToggle('orbit-plane', 'ORBITAL PLANE')}
           ${displayToggle('nodes', 'ASC. / DESC. NODES')}
+          ${displayToggle('line-of-nodes', 'LINE OF NODES')}
           ${displayToggle('apsides', 'PERIAPSIS / APOAPSIS')}
           ${displayToggle('radial', 'POSITION VECTOR')}
           ${displayToggle('axes', 'XYZ AXES')}
@@ -137,6 +138,7 @@ app.innerHTML = `
           <div><span class="dot cyan"></span> ORBIT</div>
           <div><span class="dot amber"></span> BODY POSITION</div>
           <div><span class="dot green"></span> ASCENDING NODE</div>
+          <div><span class="dot node-line"></span> LINE OF NODES</div>
           <div><span class="dot purple"></span> APOAPSIS</div>
         </div>
 
@@ -284,6 +286,32 @@ const descendingNode = marker(0x237c69, 0.055)
 nodesGroup.add(ascendingNode, descendingNode)
 scene.add(nodesGroup)
 
+// The reference plane and orbital plane intersect along the line of nodes.
+// Use real 3D beams rather than WebGL lines so the intersection stays visible
+// from oblique viewing angles and does not disappear into either plane.
+const nodeBeamGeometry = new THREE.CylinderGeometry(1, 1, 1, 12)
+
+function nodeBeam(color: number, radius: number, opacity: number): THREE.Mesh {
+  const beam = new THREE.Mesh(
+    nodeBeamGeometry,
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: opacity < 1,
+      opacity,
+      depthWrite: false,
+    }),
+  )
+  beam.scale.set(radius, 1, radius)
+  return beam
+}
+
+const lineOfNodesGroup = new THREE.Group()
+const lineOfNodesBase = nodeBeam(0xb9f5ff, 0.012, 0.38)
+const ascendingNodeBeam = nodeBeam(0x55ffb0, 0.022, 0.95)
+const descendingNodeBeam = nodeBeam(0xb966ff, 0.018, 0.82)
+lineOfNodesGroup.add(lineOfNodesBase, ascendingNodeBeam, descendingNodeBeam)
+scene.add(lineOfNodesGroup)
+
 const apsidesGroup = new THREE.Group()
 const periapsisMarker = marker(0xff7e3f, 0.065)
 const apoapsisMarker = marker(0xb966ff, 0.06)
@@ -341,6 +369,22 @@ function setText(id: string, value: string): void {
   }
 }
 
+function placeBeam(
+  beam: THREE.Mesh,
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+): void {
+  const direction = end.clone().sub(start)
+  const length = direction.length()
+
+  beam.position.copy(start).add(end).multiplyScalar(0.5)
+  beam.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    direction.normalize(),
+  )
+  beam.scale.y = length
+}
+
 function updateScene(): void {
   const samples = 512
   const orbitPoints: THREE.Vector3[] = []
@@ -366,6 +410,21 @@ function updateScene(): void {
   orbitalPlane.geometry.dispose()
   orbitalPlane.geometry = new THREE.CircleGeometry(planeRadius, 128)
   orbitalPlane.setRotationFromMatrix(orbitalPlaneRotationMatrix())
+
+  const longitudeOfAscendingNode = degreesToRadians(state.Omega)
+  const nodeDirection = new THREE.Vector3(
+    Math.cos(longitudeOfAscendingNode),
+    Math.sin(longitudeOfAscendingNode),
+    0,
+  )
+  const nodeExtent = Math.max(2, planeRadius * 1.08)
+  const origin = new THREE.Vector3(0, 0, 0)
+  const ascendingEnd = nodeDirection.clone().multiplyScalar(nodeExtent)
+  const descendingEnd = nodeDirection.clone().multiplyScalar(-nodeExtent)
+
+  placeBeam(lineOfNodesBase, descendingEnd, ascendingEnd)
+  placeBeam(ascendingNodeBeam, origin, ascendingEnd)
+  placeBeam(descendingNodeBeam, origin, descendingEnd)
 
   ascendingNode.position.copy(positionAtTrueAnomaly(-state.omega))
   descendingNode.position.copy(positionAtTrueAnomaly(180 - state.omega))
@@ -434,6 +493,7 @@ bindElementInputs()
 bindVisibilityToggle('reference-plane', referenceGrid)
 bindVisibilityToggle('orbit-plane', orbitalPlane)
 bindVisibilityToggle('nodes', nodesGroup)
+bindVisibilityToggle('line-of-nodes', lineOfNodesGroup)
 bindVisibilityToggle('apsides', apsidesGroup)
 bindVisibilityToggle('radial', radialLine)
 bindVisibilityToggle('axes', axesGroup)
