@@ -337,13 +337,6 @@ main {
   background: #4dffad;
 }
 
-.dot.node-line {
-  width: 14px;
-  height: 3px;
-  background: linear-gradient(90deg, #b966ff 0 48%, #55ffb0 52% 100%);
-  box-shadow: 0 0 7px rgba(102, 255, 201, 0.5);
-}
-
 .dot.purple {
   background: #b966ff;
 }

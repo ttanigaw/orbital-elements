@@ -106,7 +106,6 @@ app.innerHTML = `
           ${displayToggle('reference-plane', 'REFERENCE PLANE')}
           ${displayToggle('orbit-plane', 'ORBITAL PLANE')}
           ${displayToggle('nodes', 'ASC. / DESC. NODES')}
-          ${displayToggle('line-of-nodes', 'LINE OF NODES')}
           ${displayToggle('apsides', 'PERIAPSIS / APOAPSIS')}
           ${displayToggle('radial', 'POSITION VECTOR')}
           ${displayToggle('axes', 'XYZ AXES')}
@@ -138,7 +137,6 @@ app.innerHTML = `
           <div><span class="dot cyan"></span> ORBIT</div>
           <div><span class="dot amber"></span> BODY POSITION</div>
           <div><span class="dot green"></span> ASCENDING NODE</div>
-          <div><span class="dot node-line"></span> LINE OF NODES</div>
           <div><span class="dot purple"></span> APOAPSIS</div>
         </div>
 
@@ -246,11 +244,37 @@ const orbitalPlane = new THREE.Mesh(
 )
 scene.add(orbitalPlane)
 
-const orbitLine = new THREE.Line(
+const orbitNearMaterial = new THREE.LineBasicMaterial({
+  color: 0x32e6ff,
+  transparent: true,
+  opacity: 0.96,
+  depthWrite: false,
+})
+
+const orbitFarMaterial = new THREE.LineBasicMaterial({
+  color: 0x32e6ff,
+  transparent: true,
+  opacity: 0.18,
+  depthWrite: false,
+})
+
+const orbitNearLine = new THREE.LineSegments(
   new THREE.BufferGeometry(),
-  new THREE.LineBasicMaterial({ color: 0x32e6ff }),
+  orbitNearMaterial,
 )
-scene.add(orbitLine)
+
+const orbitFarLine = new THREE.LineSegments(
+  new THREE.BufferGeometry(),
+  orbitFarMaterial,
+)
+
+orbitFarLine.renderOrder = 1
+orbitNearLine.renderOrder = 2
+
+scene.add(orbitFarLine, orbitNearLine)
+
+let currentOrbitPoints: THREE.Vector3[] = []
+let lastCameraReferenceSide: 1 | -1 = 1
 
 const body = new THREE.Mesh(
   new THREE.SphereGeometry(0.085, 24, 24),
@@ -285,32 +309,6 @@ const ascendingNode = marker(0x55ffb0, 0.065)
 const descendingNode = marker(0x237c69, 0.055)
 nodesGroup.add(ascendingNode, descendingNode)
 scene.add(nodesGroup)
-
-// The reference plane and orbital plane intersect along the line of nodes.
-// Use real 3D beams rather than WebGL lines so the intersection stays visible
-// from oblique viewing angles and does not disappear into either plane.
-const nodeBeamGeometry = new THREE.CylinderGeometry(1, 1, 1, 12)
-
-function nodeBeam(color: number, radius: number, opacity: number): THREE.Mesh {
-  const beam = new THREE.Mesh(
-    nodeBeamGeometry,
-    new THREE.MeshBasicMaterial({
-      color,
-      transparent: opacity < 1,
-      opacity,
-      depthWrite: false,
-    }),
-  )
-  beam.scale.set(radius, 1, radius)
-  return beam
-}
-
-const lineOfNodesGroup = new THREE.Group()
-const lineOfNodesBase = nodeBeam(0xb9f5ff, 0.012, 0.38)
-const ascendingNodeBeam = nodeBeam(0x55ffb0, 0.022, 0.95)
-const descendingNodeBeam = nodeBeam(0xb966ff, 0.018, 0.82)
-lineOfNodesGroup.add(lineOfNodesBase, ascendingNodeBeam, descendingNodeBeam)
-scene.add(lineOfNodesGroup)
 
 const apsidesGroup = new THREE.Group()
 const periapsisMarker = marker(0xff7e3f, 0.065)
@@ -369,32 +367,93 @@ function setText(id: string, value: string): void {
   }
 }
 
-function placeBeam(
-  beam: THREE.Mesh,
-  start: THREE.Vector3,
-  end: THREE.Vector3,
-): void {
-  const direction = end.clone().sub(start)
-  const length = direction.length()
+function cameraReferenceSide(): 1 | -1 {
+  const epsilon = 1e-6
 
-  beam.position.copy(start).add(end).multiplyScalar(0.5)
-  beam.quaternion.setFromUnitVectors(
-    new THREE.Vector3(0, 1, 0),
-    direction.normalize(),
-  )
-  beam.scale.y = length
+  if (camera.position.z > epsilon) {
+    return 1
+  }
+
+  if (camera.position.z < -epsilon) {
+    return -1
+  }
+
+  return lastCameraReferenceSide
+}
+
+function setLineSegmentsGeometry(
+  line: THREE.LineSegments,
+  points: THREE.Vector3[],
+): void {
+  line.geometry.dispose()
+  line.geometry = new THREE.BufferGeometry().setFromPoints(points)
+}
+
+function updateOrbitDepthCue(points: THREE.Vector3[] = currentOrbitPoints): void {
+  if (points.length < 2) {
+    return
+  }
+
+  const cameraSide = cameraReferenceSide()
+  const nearSegments: THREE.Vector3[] = []
+  const farSegments: THREE.Vector3[] = []
+  const epsilon = 1e-9
+
+  const appendSegment = (
+    target: THREE.Vector3[],
+    start: THREE.Vector3,
+    end: THREE.Vector3,
+  ): void => {
+    target.push(start.clone(), end.clone())
+  }
+
+  for (let index = 0; index < points.length; index += 1) {
+    const start = points[index]
+    const end = points[(index + 1) % points.length]
+
+    const startSignedHeight = cameraSide * start.z
+    const endSignedHeight = cameraSide * end.z
+
+    const startNear = startSignedHeight >= -epsilon
+    const endNear = endSignedHeight >= -epsilon
+
+    if (startNear === endNear) {
+      appendSegment(startNear ? nearSegments : farSegments, start, end)
+      continue
+    }
+
+    const denominator = start.z - end.z
+    const fraction =
+      Math.abs(denominator) < epsilon
+        ? 0.5
+        : THREE.MathUtils.clamp(start.z / denominator, 0, 1)
+
+    const crossing = start.clone().lerp(end, fraction)
+
+    if (startNear) {
+      appendSegment(nearSegments, start, crossing)
+      appendSegment(farSegments, crossing, end)
+    } else {
+      appendSegment(farSegments, start, crossing)
+      appendSegment(nearSegments, crossing, end)
+    }
+  }
+
+  setLineSegmentsGeometry(orbitNearLine, nearSegments)
+  setLineSegmentsGeometry(orbitFarLine, farSegments)
+  lastCameraReferenceSide = cameraSide
 }
 
 function updateScene(): void {
   const samples = 512
   const orbitPoints: THREE.Vector3[] = []
 
-  for (let index = 0; index <= samples; index += 1) {
+  for (let index = 0; index < samples; index += 1) {
     orbitPoints.push(positionAtTrueAnomaly((360 * index) / samples))
   }
 
-  orbitLine.geometry.dispose()
-  orbitLine.geometry = new THREE.BufferGeometry().setFromPoints(orbitPoints)
+  currentOrbitPoints = orbitPoints
+  updateOrbitDepthCue(orbitPoints)
 
   const currentPosition = positionAtTrueAnomaly(state.nu)
   body.position.copy(currentPosition)
@@ -410,21 +469,6 @@ function updateScene(): void {
   orbitalPlane.geometry.dispose()
   orbitalPlane.geometry = new THREE.CircleGeometry(planeRadius, 128)
   orbitalPlane.setRotationFromMatrix(orbitalPlaneRotationMatrix())
-
-  const longitudeOfAscendingNode = degreesToRadians(state.Omega)
-  const nodeDirection = new THREE.Vector3(
-    Math.cos(longitudeOfAscendingNode),
-    Math.sin(longitudeOfAscendingNode),
-    0,
-  )
-  const nodeExtent = Math.max(2, planeRadius * 1.08)
-  const origin = new THREE.Vector3(0, 0, 0)
-  const ascendingEnd = nodeDirection.clone().multiplyScalar(nodeExtent)
-  const descendingEnd = nodeDirection.clone().multiplyScalar(-nodeExtent)
-
-  placeBeam(lineOfNodesBase, descendingEnd, ascendingEnd)
-  placeBeam(ascendingNodeBeam, origin, ascendingEnd)
-  placeBeam(descendingNodeBeam, origin, descendingEnd)
 
   ascendingNode.position.copy(positionAtTrueAnomaly(-state.omega))
   descendingNode.position.copy(positionAtTrueAnomaly(180 - state.omega))
@@ -493,7 +537,6 @@ bindElementInputs()
 bindVisibilityToggle('reference-plane', referenceGrid)
 bindVisibilityToggle('orbit-plane', orbitalPlane)
 bindVisibilityToggle('nodes', nodesGroup)
-bindVisibilityToggle('line-of-nodes', lineOfNodesGroup)
 bindVisibilityToggle('apsides', apsidesGroup)
 bindVisibilityToggle('radial', radialLine)
 bindVisibilityToggle('axes', axesGroup)
@@ -517,11 +560,16 @@ new ResizeObserver(resize).observe(viewport)
 function animate(): void {
   requestAnimationFrame(animate)
   controls.update()
+
+  if (cameraReferenceSide() !== lastCameraReferenceSide) {
+    updateOrbitDepthCue()
+  }
+
   star.rotation.z += 0.001
   renderer.render(scene, camera)
 }
 
-updateScene()
 resetView()
+updateScene()
 resize()
 animate()
