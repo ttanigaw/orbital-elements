@@ -254,7 +254,7 @@ const orbitNearMaterial = new THREE.LineBasicMaterial({
 const orbitFarMaterial = new THREE.LineBasicMaterial({
   color: 0x32e6ff,
   transparent: true,
-  opacity: 0.30,
+  opacity: 0.50,
   depthWrite: false,
 })
 
