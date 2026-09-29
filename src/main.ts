@@ -152,11 +152,13 @@ app.innerHTML = `
   </div>
 `
 
-const viewport = document.querySelector<HTMLDivElement>('#viewport')
+const viewportElement = document.querySelector<HTMLDivElement>('#viewport')
 
-if (!viewport) {
+if (!viewportElement) {
   throw new Error('Viewport not found')
 }
+
+const viewport: HTMLDivElement = viewportElement
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x02070d)
