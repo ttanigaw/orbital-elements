@@ -298,17 +298,35 @@ const star = new THREE.Mesh(
 )
 scene.add(star)
 
-const starCorona = new THREE.Sprite(
+const starGlowTexture = createStarGlowTexture()
+
+const starHalo = new THREE.Sprite(
   new THREE.SpriteMaterial({
-    map: createStarGlowTexture(),
-    color: 0xffb45f,
+    map: starGlowTexture,
+    color: 0xffd28b,
     transparent: true,
-    opacity: 0.34,
+    opacity: 0.62,
     blending: THREE.AdditiveBlending,
+    depthTest: false,
     depthWrite: false,
   }),
 )
-starCorona.scale.set(0.44, 0.44, 1)
+starHalo.scale.set(0.28, 0.28, 1)
+starHalo.renderOrder = 4
+scene.add(starHalo)
+
+const starCorona = new THREE.Sprite(
+  new THREE.SpriteMaterial({
+    map: starGlowTexture,
+    color: 0xffa652,
+    transparent: true,
+    opacity: 0.24,
+    blending: THREE.AdditiveBlending,
+    depthTest: false,
+    depthWrite: false,
+  }),
+)
+starCorona.scale.set(0.72, 0.72, 1)
 starCorona.renderOrder = 3
 scene.add(starCorona)
 
@@ -380,9 +398,9 @@ scene.add(orbitFarLine, orbitNearLine)
 const referenceCircleNear = new THREE.LineSegments(
   new THREE.BufferGeometry(),
   new THREE.LineBasicMaterial({
-    color: 0x7fa8b3,
+    color: 0xa6dce8,
     transparent: true,
-    opacity: 0.24,
+    opacity: 0.72,
     depthWrite: false,
   }),
 )
@@ -390,9 +408,9 @@ const referenceCircleNear = new THREE.LineSegments(
 const referenceCircleFar = new THREE.LineSegments(
   new THREE.BufferGeometry(),
   new THREE.LineBasicMaterial({
-    color: 0x7fa8b3,
+    color: 0xa6dce8,
     transparent: true,
-    opacity: 0.09,
+    opacity: 0.40,
     depthWrite: false,
   }),
 )
