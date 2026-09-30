@@ -289,10 +289,10 @@ scene.add(body)
 
 const radialLine = new THREE.Line(
   new THREE.BufferGeometry(),
-  new THREE.LineDashedMaterial({
+  new THREE.LineBasicMaterial({
     color: 0xffb644,
-    dashSize: 0.12,
-    gapSize: 0.07,
+    transparent: true,
+    opacity: 0.82,
   }),
 )
 scene.add(radialLine)
@@ -309,6 +309,17 @@ const ascendingNode = marker(0x55ffb0, 0.065)
 const descendingNode = marker(0x237c69, 0.055)
 nodesGroup.add(ascendingNode, descendingNode)
 scene.add(nodesGroup)
+
+const lineOfNodes = new THREE.Line(
+  new THREE.BufferGeometry(),
+  new THREE.LineBasicMaterial({
+    color: 0x77a6b2,
+    transparent: true,
+    opacity: 0.28,
+    depthWrite: false,
+  }),
+)
+scene.add(lineOfNodes)
 
 const apsidesGroup = new THREE.Group()
 const periapsisMarker = marker(0xff7e3f, 0.065)
@@ -463,12 +474,24 @@ function updateScene(): void {
     new THREE.Vector3(0, 0, 0),
     currentPosition,
   ])
-  radialLine.computeLineDistances()
 
   const planeRadius = Math.max(1, state.a * (1 + state.e) * 1.08)
   orbitalPlane.geometry.dispose()
   orbitalPlane.geometry = new THREE.CircleGeometry(planeRadius, 128)
   orbitalPlane.setRotationFromMatrix(orbitalPlaneRotationMatrix())
+
+  const nodeLongitude = degreesToRadians(state.Omega)
+  const nodeDirection = new THREE.Vector3(
+    Math.cos(nodeLongitude),
+    Math.sin(nodeLongitude),
+    0,
+  )
+  const nodeExtent = planeRadius * 1.04
+  lineOfNodes.geometry.dispose()
+  lineOfNodes.geometry = new THREE.BufferGeometry().setFromPoints([
+    nodeDirection.clone().multiplyScalar(-nodeExtent),
+    nodeDirection.clone().multiplyScalar(nodeExtent),
+  ])
 
   ascendingNode.position.copy(positionAtTrueAnomaly(-state.omega))
   descendingNode.position.copy(positionAtTrueAnomaly(180 - state.omega))
