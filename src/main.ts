@@ -594,6 +594,16 @@ function updateCurrentPosition(): void {
   )
   radialPositions.needsUpdate = true
 
+  const radius = currentPosition.length()
+  const periapsisDistance = state.a * (1 - state.e)
+  const apoapsisDistance = state.a * (1 + state.e)
+
+  setText('radius-value', `${radius.toFixed(3)} AU`)
+  setText('x-value', currentPosition.x.toFixed(3))
+  setText('y-value', currentPosition.y.toFixed(3))
+  setText('z-value', currentPosition.z.toFixed(3))
+  setText('periapsis-value', `${periapsisDistance.toFixed(3)} AU`)
+  setText('apoapsis-value', `${apoapsisDistance.toFixed(3)} AU`)
 }
 
 function updateScene(): void {
@@ -632,16 +642,6 @@ function updateScene(): void {
   periapsisMarker.position.copy(positionAtTrueAnomaly(0))
   apoapsisMarker.position.copy(positionAtTrueAnomaly(180))
 
-  const radius = currentPosition.length()
-  const periapsisDistance = state.a * (1 - state.e)
-  const apoapsisDistance = state.a * (1 + state.e)
-
-  setText('radius-value', `${radius.toFixed(3)} AU`)
-  setText('x-value', currentPosition.x.toFixed(3))
-  setText('y-value', currentPosition.y.toFixed(3))
-  setText('z-value', currentPosition.z.toFixed(3))
-  setText('periapsis-value', `${periapsisDistance.toFixed(3)} AU`)
-  setText('apoapsis-value', `${apoapsisDistance.toFixed(3)} AU`)
 }
 
 let meanAnomalyRadians = meanAnomalyFromTrueAnomaly(
