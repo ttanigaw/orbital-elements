@@ -337,6 +337,10 @@ main {
   background: #4dffad;
 }
 
+.dot.periapsis {
+  background: #ff7e3f;
+}
+
 .dot.purple {
   background: #b966ff;
 }
