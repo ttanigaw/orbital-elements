@@ -204,6 +204,7 @@ app.innerHTML = `
           <div><span class="dot cyan"></span> ORBIT</div>
           <div><span class="dot amber"></span> BODY POSITION</div>
           <div><span class="dot green"></span> ASCENDING NODE</div>
+          <div><span class="dot periapsis"></span> PERIAPSIS</div>
           <div><span class="dot purple"></span> APOAPSIS</div>
         </div>
 
@@ -253,27 +254,62 @@ scene.add(new THREE.AmbientLight(0x668aa0, 1.4))
 const centralLight = new THREE.PointLight(0xffb35c, 28, 35)
 scene.add(centralLight)
 
+function createStarGlowTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 128
+  canvas.height = 128
+
+  const context = canvas.getContext('2d')
+  if (!context) {
+    throw new Error('Unable to create star glow texture')
+  }
+
+  const gradient = context.createRadialGradient(
+    64,
+    64,
+    0,
+    64,
+    64,
+    64,
+  )
+  gradient.addColorStop(0, 'rgba(255, 246, 215, 0.95)')
+  gradient.addColorStop(0.12, 'rgba(255, 199, 104, 0.55)')
+  gradient.addColorStop(0.32, 'rgba(255, 139, 54, 0.20)')
+  gradient.addColorStop(0.62, 'rgba(255, 112, 30, 0.055)')
+  gradient.addColorStop(1, 'rgba(255, 90, 20, 0)')
+
+  context.fillStyle = gradient
+  context.fillRect(0, 0, 128, 128)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
 const star = new THREE.Mesh(
-  new THREE.SphereGeometry(0.14, 32, 32),
+  new THREE.SphereGeometry(0.09, 32, 32),
   new THREE.MeshStandardMaterial({
-    color: 0xffd693,
-    emissive: 0xff7a18,
-    emissiveIntensity: 2.5,
-    roughness: 0.25,
+    color: 0xffdfa3,
+    emissive: 0xff861f,
+    emissiveIntensity: 2.15,
+    roughness: 0.28,
   }),
 )
 scene.add(star)
 
-const starGlow = new THREE.Mesh(
-  new THREE.SphereGeometry(0.25, 24, 24),
-  new THREE.MeshBasicMaterial({
-    color: 0xff9b38,
+const starCorona = new THREE.Sprite(
+  new THREE.SpriteMaterial({
+    map: createStarGlowTexture(),
+    color: 0xffb45f,
     transparent: true,
-    opacity: 0.12,
-    side: THREE.BackSide,
+    opacity: 0.34,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
   }),
 )
-scene.add(starGlow)
+starCorona.scale.set(0.44, 0.44, 1)
+starCorona.renderOrder = 3
+scene.add(starCorona)
 
 const referenceGrid = new THREE.GridHelper(22, 44, 0x194d63, 0x0a2634)
 referenceGrid.rotation.x = Math.PI / 2
@@ -397,16 +433,16 @@ const sweptAreaGroup = new THREE.Group()
 sweptAreaGroup.add(sweptAreaFar, sweptAreaNear)
 scene.add(sweptAreaGroup)
 
-function marker(color: number, radius: number): THREE.Mesh {
+function marker(color: number): THREE.Mesh {
   return new THREE.Mesh(
-    new THREE.SphereGeometry(radius, 18, 18),
+    new THREE.SphereGeometry(1, 18, 18),
     new THREE.MeshBasicMaterial({ color }),
   )
 }
 
 const nodesGroup = new THREE.Group()
-const ascendingNode = marker(0x55ffb0, 0.065)
-const descendingNode = marker(0x237c69, 0.055)
+const ascendingNode = marker(0x55ffb0)
+const descendingNode = marker(0x237c69)
 nodesGroup.add(ascendingNode, descendingNode)
 scene.add(nodesGroup)
 
@@ -422,8 +458,8 @@ const lineOfNodes = new THREE.Line(
 scene.add(lineOfNodes)
 
 const apsidesGroup = new THREE.Group()
-const periapsisMarker = marker(0xff7e3f, 0.065)
-const apoapsisMarker = marker(0xb966ff, 0.06)
+const periapsisMarker = marker(0xff7e3f)
+const apoapsisMarker = marker(0xb966ff)
 apsidesGroup.add(periapsisMarker, apoapsisMarker)
 scene.add(apsidesGroup)
 
@@ -787,6 +823,12 @@ function updateScene(): void {
     nodeDirection.clone().multiplyScalar(-nodeExtent),
     nodeDirection.clone().multiplyScalar(nodeExtent),
   ])
+
+  const markerScale = state.a
+  ascendingNode.scale.setScalar(0.013 * markerScale)
+  descendingNode.scale.setScalar(0.011 * markerScale)
+  periapsisMarker.scale.setScalar(0.013 * markerScale)
+  apoapsisMarker.scale.setScalar(0.012 * markerScale)
 
   ascendingNode.position.copy(positionAtTrueAnomaly(-state.omega))
   descendingNode.position.copy(positionAtTrueAnomaly(180 - state.omega))
