@@ -20,6 +20,10 @@ const state: OrbitalElements = {
   nu: 35,
 }
 
+const TWO_PI = 2 * Math.PI
+const ONE_AU_ORBIT_SECONDS = 4
+let playbackRate = 1
+
 const app = document.querySelector<HTMLDivElement>('#app')
 
 if (!app) {
@@ -119,6 +123,39 @@ app.innerHTML = `
           <div class="data-row"><span>Z</span><strong id="z-value">---</strong></div>
           <div class="data-row"><span>PERIAPSIS q</span><strong id="periapsis-value">---</strong></div>
           <div class="data-row"><span>APOAPSIS Q</span><strong id="apoapsis-value">---</strong></div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-title"><span>04</span> SETTINGS</div>
+          <div class="control">
+            <div class="control-heading">
+              <label for="range-playback-rate">PLAYBACK RATE</label>
+              <div class="numeric">
+                <input
+                  id="number-playback-rate"
+                  class="number-input"
+                  type="number"
+                  min="0.1"
+                  max="10"
+                  step="0.1"
+                  value="1"
+                  aria-label="Playback rate"
+                />
+                <span>×</span>
+              </div>
+            </div>
+            <input
+              id="range-playback-rate"
+              class="slider"
+              type="range"
+              min="0.1"
+              max="10"
+              step="0.1"
+              value="1"
+              aria-label="Playback rate"
+            />
+          </div>
+          <div class="data-row"><span>1 AU PERIOD @ 1×</span><strong>4.0 s</strong></div>
         </section>
       </aside>
 
@@ -287,14 +324,21 @@ const body = new THREE.Mesh(
 )
 scene.add(body)
 
+const radialGeometry = new THREE.BufferGeometry()
+radialGeometry.setAttribute(
+  'position',
+  new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3),
+)
+
 const radialLine = new THREE.Line(
-  new THREE.BufferGeometry(),
+  radialGeometry,
   new THREE.LineBasicMaterial({
     color: 0xffb644,
     transparent: true,
     opacity: 0.82,
   }),
 )
+radialLine.frustumCulled = false
 scene.add(radialLine)
 
 function marker(color: number, radius: number): THREE.Mesh {
@@ -329,6 +373,75 @@ scene.add(apsidesGroup)
 
 function degreesToRadians(degrees: number): number {
   return THREE.MathUtils.degToRad(degrees)
+}
+
+function normalizeRadians(angle: number): number {
+  return ((angle % TWO_PI) + TWO_PI) % TWO_PI
+}
+
+function meanAnomalyFromTrueAnomaly(
+  trueAnomaly: number,
+  eccentricity: number,
+): number {
+  const eccentricAnomaly = Math.atan2(
+    Math.sqrt(1 - eccentricity * eccentricity) * Math.sin(trueAnomaly),
+    eccentricity + Math.cos(trueAnomaly),
+  )
+  const normalizedEccentricAnomaly = normalizeRadians(eccentricAnomaly)
+
+  return normalizeRadians(
+    normalizedEccentricAnomaly -
+      eccentricity * Math.sin(normalizedEccentricAnomaly),
+  )
+}
+
+function eccentricAnomalyFromMeanAnomaly(
+  meanAnomaly: number,
+  eccentricity: number,
+): number {
+  const normalizedMeanAnomaly = normalizeRadians(meanAnomaly)
+  let eccentricAnomaly =
+    eccentricity < 0.8 ? normalizedMeanAnomaly : Math.PI
+
+  for (let iteration = 0; iteration < 15; iteration += 1) {
+    const residual =
+      eccentricAnomaly -
+      eccentricity * Math.sin(eccentricAnomaly) -
+      normalizedMeanAnomaly
+    const derivative =
+      1 - eccentricity * Math.cos(eccentricAnomaly)
+    const correction = residual / derivative
+
+    eccentricAnomaly -= correction
+
+    if (Math.abs(correction) < 1e-12) {
+      break
+    }
+  }
+
+  return normalizeRadians(eccentricAnomaly)
+}
+
+function trueAnomalyFromMeanAnomaly(
+  meanAnomaly: number,
+  eccentricity: number,
+): number {
+  const eccentricAnomaly = eccentricAnomalyFromMeanAnomaly(
+    meanAnomaly,
+    eccentricity,
+  )
+
+  return normalizeRadians(
+    Math.atan2(
+      Math.sqrt(1 - eccentricity * eccentricity) *
+        Math.sin(eccentricAnomaly),
+      Math.cos(eccentricAnomaly) - eccentricity,
+    ),
+  )
+}
+
+function orbitalPeriodSeconds(): number {
+  return ONE_AU_ORBIT_SECONDS * Math.pow(state.a, 1.5)
 }
 
 function orbitalRotationMatrix(): THREE.Matrix4 {
@@ -455,6 +568,34 @@ function updateOrbitDepthCue(points: THREE.Vector3[] = currentOrbitPoints): void
   lastCameraReferenceSide = cameraSide
 }
 
+function syncTrueAnomalyInputs(): void {
+  const displayValue = state.nu.toFixed(1)
+
+  document
+    .querySelectorAll<HTMLInputElement>('[data-key="nu"]')
+    .forEach((input) => {
+      input.value = displayValue
+    })
+}
+
+function updateCurrentPosition(): void {
+  const currentPosition = positionAtTrueAnomaly(state.nu)
+  body.position.copy(currentPosition)
+
+  const radialPositions = radialGeometry.getAttribute(
+    'position',
+  ) as THREE.BufferAttribute
+  radialPositions.setXYZ(0, 0, 0, 0)
+  radialPositions.setXYZ(
+    1,
+    currentPosition.x,
+    currentPosition.y,
+    currentPosition.z,
+  )
+  radialPositions.needsUpdate = true
+
+}
+
 function updateScene(): void {
   const samples = 512
   const orbitPoints: THREE.Vector3[] = []
@@ -466,14 +607,7 @@ function updateScene(): void {
   currentOrbitPoints = orbitPoints
   updateOrbitDepthCue(orbitPoints)
 
-  const currentPosition = positionAtTrueAnomaly(state.nu)
-  body.position.copy(currentPosition)
-
-  radialLine.geometry.dispose()
-  radialLine.geometry = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(0, 0, 0),
-    currentPosition,
-  ])
+  updateCurrentPosition()
 
   const planeRadius = Math.max(1, state.a * (1 + state.e) * 1.08)
   orbitalPlane.geometry.dispose()
@@ -510,6 +644,11 @@ function updateScene(): void {
   setText('apoapsis-value', `${apoapsisDistance.toFixed(3)} AU`)
 }
 
+let meanAnomalyRadians = meanAnomalyFromTrueAnomaly(
+  degreesToRadians(state.nu),
+  state.e,
+)
+
 function bindElementInputs(): void {
   document.querySelectorAll<HTMLInputElement>('[data-key]').forEach((input) => {
     input.addEventListener('input', () => {
@@ -525,6 +664,13 @@ function bindElementInputs(): void {
       const value = Math.min(max, Math.max(min, requestedValue))
       state[key] = value
 
+      if (key === 'nu' || key === 'e') {
+        meanAnomalyRadians = meanAnomalyFromTrueAnomaly(
+          degreesToRadians(state.nu),
+          state.e,
+        )
+      }
+
       document
         .querySelectorAll<HTMLInputElement>(`[data-key="${key}"]`)
         .forEach((peer) => {
@@ -534,6 +680,29 @@ function bindElementInputs(): void {
         })
 
       updateScene()
+    })
+  })
+}
+
+function bindPlaybackRateInputs(): void {
+  const inputs = [
+    document.querySelector<HTMLInputElement>('#range-playback-rate'),
+    document.querySelector<HTMLInputElement>('#number-playback-rate'),
+  ].filter((input): input is HTMLInputElement => input !== null)
+
+  inputs.forEach((input) => {
+    input.addEventListener('input', () => {
+      const requestedValue = Number(input.value)
+
+      if (!Number.isFinite(requestedValue)) {
+        return
+      }
+
+      playbackRate = THREE.MathUtils.clamp(requestedValue, 0.1, 10)
+
+      inputs.forEach((peer) => {
+        peer.value = playbackRate.toFixed(1)
+      })
     })
   })
 }
@@ -557,6 +726,7 @@ function resetView(): void {
 }
 
 bindElementInputs()
+bindPlaybackRateInputs()
 bindVisibilityToggle('reference-plane', referenceGrid)
 bindVisibilityToggle('orbit-plane', orbitalPlane)
 bindVisibilityToggle('nodes', nodesGroup)
@@ -580,9 +750,32 @@ function resize(): void {
 
 new ResizeObserver(resize).observe(viewport)
 
-function animate(): void {
+let lastAnimationTimestamp: number | null = null
+
+function animate(timestamp: number): void {
   requestAnimationFrame(animate)
   controls.update()
+
+  if (lastAnimationTimestamp !== null) {
+    const deltaSeconds = Math.min(
+      (timestamp - lastAnimationTimestamp) / 1000,
+      0.1,
+    )
+    const meanMotion =
+      (TWO_PI / orbitalPeriodSeconds()) * playbackRate
+
+    meanAnomalyRadians = normalizeRadians(
+      meanAnomalyRadians + meanMotion * deltaSeconds,
+    )
+    state.nu = THREE.MathUtils.radToDeg(
+      trueAnomalyFromMeanAnomaly(meanAnomalyRadians, state.e),
+    )
+
+    syncTrueAnomalyInputs()
+    updateCurrentPosition()
+  }
+
+  lastAnimationTimestamp = timestamp
 
   if (cameraReferenceSide() !== lastCameraReferenceSide) {
     updateOrbitDepthCue()
@@ -595,4 +788,4 @@ function animate(): void {
 resetView()
 updateScene()
 resize()
-animate()
+requestAnimationFrame(animate)
