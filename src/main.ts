@@ -158,6 +158,7 @@ app.innerHTML = `
           </div>
           <div class="data-row"><span>1 AU PERIOD @ 1×</span><strong>4.0 s</strong></div>
           ${displayToggle('swept-area', 'KEPLER SWEPT AREA')}
+          ${displayToggle('reference-circle', 'CIRCULAR ORBIT (a)')}
           <div class="control">
             <div class="control-heading">
               <label for="range-sweep-interval">SWEEP INTERVAL Δt/T</label>
@@ -376,7 +377,32 @@ orbitNearLine.renderOrder = 2
 
 scene.add(orbitFarLine, orbitNearLine)
 
+const referenceCircleNear = new THREE.LineSegments(
+  new THREE.BufferGeometry(),
+  new THREE.LineBasicMaterial({
+    color: 0x7fa8b3,
+    transparent: true,
+    opacity: 0.24,
+    depthWrite: false,
+  }),
+)
+
+const referenceCircleFar = new THREE.LineSegments(
+  new THREE.BufferGeometry(),
+  new THREE.LineBasicMaterial({
+    color: 0x7fa8b3,
+    transparent: true,
+    opacity: 0.09,
+    depthWrite: false,
+  }),
+)
+
+const referenceCircleGroup = new THREE.Group()
+referenceCircleGroup.add(referenceCircleFar, referenceCircleNear)
+scene.add(referenceCircleGroup)
+
 let currentOrbitPoints: THREE.Vector3[] = []
+let currentReferenceCirclePoints: THREE.Vector3[] = []
 let lastCameraReferenceSide: 1 | -1 = 1
 
 const body = new THREE.Mesh(
@@ -563,6 +589,16 @@ function orbitalPlaneRotationMatrix(): THREE.Matrix4 {
   return new THREE.Matrix4().multiplyMatrices(longitudeRotation, inclinationRotation)
 }
 
+function positionOnReferenceCircle(angleDegrees: number): THREE.Vector3 {
+  const angle = degreesToRadians(angleDegrees)
+
+  return new THREE.Vector3(
+    state.a * Math.cos(angle),
+    state.a * Math.sin(angle),
+    0,
+  ).applyMatrix4(orbitalPlaneRotationMatrix())
+}
+
 function positionAtTrueAnomaly(trueAnomalyDegrees: number): THREE.Vector3 {
   const nu = degreesToRadians(trueAnomalyDegrees)
   const radius =
@@ -658,6 +694,59 @@ function updateOrbitDepthCue(points: THREE.Vector3[] = currentOrbitPoints): void
   setLineSegmentsGeometry(orbitNearLine, nearSegments)
   setLineSegmentsGeometry(orbitFarLine, farSegments)
   lastCameraReferenceSide = cameraSide
+}
+
+function updateReferenceCircleDepthCue(
+  points: THREE.Vector3[] = currentReferenceCirclePoints,
+): void {
+  if (points.length < 2) {
+    return
+  }
+
+  const cameraSide = cameraReferenceSide()
+  const nearSegments: THREE.Vector3[] = []
+  const farSegments: THREE.Vector3[] = []
+  const epsilon = 1e-9
+
+  const appendSegment = (
+    target: THREE.Vector3[],
+    start: THREE.Vector3,
+    end: THREE.Vector3,
+  ): void => {
+    target.push(start.clone(), end.clone())
+  }
+
+  for (let index = 0; index < points.length; index += 1) {
+    const start = points[index]
+    const end = points[(index + 1) % points.length]
+    const startSignedHeight = cameraSide * start.z
+    const endSignedHeight = cameraSide * end.z
+    const startNear = startSignedHeight >= -epsilon
+    const endNear = endSignedHeight >= -epsilon
+
+    if (startNear === endNear) {
+      appendSegment(startNear ? nearSegments : farSegments, start, end)
+      continue
+    }
+
+    const denominator = start.z - end.z
+    const fraction =
+      Math.abs(denominator) < epsilon
+        ? 0.5
+        : THREE.MathUtils.clamp(start.z / denominator, 0, 1)
+    const crossing = start.clone().lerp(end, fraction)
+
+    if (startNear) {
+      appendSegment(nearSegments, start, crossing)
+      appendSegment(farSegments, crossing, end)
+    } else {
+      appendSegment(farSegments, start, crossing)
+      appendSegment(nearSegments, crossing, end)
+    }
+  }
+
+  setLineSegmentsGeometry(referenceCircleNear, nearSegments)
+  setLineSegmentsGeometry(referenceCircleFar, farSegments)
 }
 
 function setTriangleGeometry(
@@ -802,6 +891,15 @@ function updateScene(): void {
 
   currentOrbitPoints = orbitPoints
   updateOrbitDepthCue(orbitPoints)
+
+  const referenceCirclePoints: THREE.Vector3[] = []
+  for (let index = 0; index < samples; index += 1) {
+    referenceCirclePoints.push(
+      positionOnReferenceCircle((360 * index) / samples),
+    )
+  }
+  currentReferenceCirclePoints = referenceCirclePoints
+  updateReferenceCircleDepthCue(referenceCirclePoints)
 
   updateCurrentPosition()
   updateSweptArea()
@@ -951,6 +1049,7 @@ bindElementInputs()
 bindPlaybackRateInputs()
 bindSweepIntervalInputs()
 bindVisibilityToggle('swept-area', sweptAreaGroup)
+bindVisibilityToggle('reference-circle', referenceCircleGroup)
 bindVisibilityToggle('reference-plane', referenceGrid)
 bindVisibilityToggle('orbit-plane', orbitalPlane)
 bindVisibilityToggle('nodes', nodesGroup)
@@ -1004,6 +1103,7 @@ function animate(timestamp: number): void {
 
   if (cameraReferenceSide() !== lastCameraReferenceSide) {
     updateOrbitDepthCue()
+    updateReferenceCircleDepthCue()
     updateSweptArea()
   }
 
