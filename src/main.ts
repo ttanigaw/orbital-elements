@@ -24,7 +24,7 @@ const TWO_PI = 2 * Math.PI
 const ONE_AU_ORBIT_SECONDS = 4
 let playbackRate = 1
 let isOrbitPlaying = true
-let sweepIntervalFraction = 1 / 8
+let sweepIntervalFraction = 0.1
 
 const app = document.querySelector<HTMLDivElement>('#app')
 
@@ -124,6 +124,8 @@ app.innerHTML = `
           ${displayToggle('nodes', 'ASC. / DESC. NODES')}
           ${displayToggle('apsides', 'PERIAPSIS / APOAPSIS')}
           ${displayToggle('radial', 'POSITION VECTOR')}
+          ${displayToggle('swept-area', 'KEPLER SWEPT AREA')}
+          ${displayToggle('reference-circle', 'CIRCULAR ORBIT (a)')}
           ${displayToggle('axes', 'XYZ AXES')}
         </section>
 
@@ -168,8 +170,6 @@ app.innerHTML = `
             />
           </div>
           <div class="data-row"><span>1 AU PERIOD @ 1×</span><strong>4.0 s</strong></div>
-          ${displayToggle('swept-area', 'KEPLER SWEPT AREA')}
-          ${displayToggle('reference-circle', 'CIRCULAR ORBIT (a)')}
           <div class="control">
             <div class="control-heading">
               <label for="range-sweep-interval">SWEEP INTERVAL Δt/T</label>
@@ -181,7 +181,7 @@ app.innerHTML = `
                   min="0"
                   max="1"
                   step="0.005"
-                  value="0.125"
+                  value="0.1"
                   aria-label="Swept-area time interval as a fraction of one period"
                 />
                 <span>T</span>
@@ -194,7 +194,7 @@ app.innerHTML = `
               min="0"
               max="1"
               step="0.005"
-              value="0.125"
+              value="0.1"
               aria-label="Swept-area time interval as a fraction of one period"
             />
           </div>
