@@ -64,6 +64,12 @@ h1 {
   text-shadow: 0 0 12px rgba(50, 225, 255, 0.32);
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
 .hud-button {
   padding: 9px 14px;
   border: 1px solid rgba(68, 226, 255, 0.4);
@@ -78,6 +84,12 @@ h1 {
   border-color: #57e8ff;
   background: rgba(0, 194, 255, 0.13);
   box-shadow: 0 0 14px rgba(46, 225, 255, 0.12);
+}
+
+.playback-button.is-paused {
+  border-color: rgba(255, 188, 92, 0.6);
+  color: #ffd18a;
+  background: rgba(255, 158, 52, 0.07);
 }
 
 main {
