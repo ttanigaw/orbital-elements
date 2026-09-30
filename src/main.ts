@@ -23,6 +23,7 @@ const state: OrbitalElements = {
 const TWO_PI = 2 * Math.PI
 const ONE_AU_ORBIT_SECONDS = 4
 let playbackRate = 1
+let sweepIntervalFraction = 1 / 8
 
 const app = document.querySelector<HTMLDivElement>('#app')
 
@@ -156,6 +157,35 @@ app.innerHTML = `
             />
           </div>
           <div class="data-row"><span>1 AU PERIOD @ 1×</span><strong>4.0 s</strong></div>
+          ${displayToggle('swept-area', 'KEPLER SWEPT AREA')}
+          <div class="control">
+            <div class="control-heading">
+              <label for="range-sweep-interval">SWEEP INTERVAL Δt/T</label>
+              <div class="numeric">
+                <input
+                  id="number-sweep-interval"
+                  class="number-input"
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.005"
+                  value="0.125"
+                  aria-label="Swept-area time interval as a fraction of one period"
+                />
+                <span>T</span>
+              </div>
+            </div>
+            <input
+              id="range-sweep-interval"
+              class="slider"
+              type="range"
+              min="0"
+              max="1"
+              step="0.005"
+              value="0.125"
+              aria-label="Swept-area time interval as a fraction of one period"
+            />
+          </div>
         </section>
       </aside>
 
@@ -340,6 +370,32 @@ const radialLine = new THREE.Line(
 )
 radialLine.frustumCulled = false
 scene.add(radialLine)
+
+const sweptAreaNear = new THREE.Mesh(
+  new THREE.BufferGeometry(),
+  new THREE.MeshBasicMaterial({
+    color: 0xffb644,
+    transparent: true,
+    opacity: 0.18,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  }),
+)
+
+const sweptAreaFar = new THREE.Mesh(
+  new THREE.BufferGeometry(),
+  new THREE.MeshBasicMaterial({
+    color: 0xffb644,
+    transparent: true,
+    opacity: 0.06,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  }),
+)
+
+const sweptAreaGroup = new THREE.Group()
+sweptAreaGroup.add(sweptAreaFar, sweptAreaNear)
+scene.add(sweptAreaGroup)
 
 function marker(color: number, radius: number): THREE.Mesh {
   return new THREE.Mesh(
@@ -568,6 +624,100 @@ function updateOrbitDepthCue(points: THREE.Vector3[] = currentOrbitPoints): void
   lastCameraReferenceSide = cameraSide
 }
 
+function setTriangleGeometry(
+  mesh: THREE.Mesh,
+  vertices: THREE.Vector3[],
+): void {
+  mesh.geometry.dispose()
+  mesh.geometry = new THREE.BufferGeometry().setFromPoints(vertices)
+}
+
+function updateSweptArea(): void {
+  if (sweepIntervalFraction <= 0) {
+    setTriangleGeometry(sweptAreaNear, [])
+    setTriangleGeometry(sweptAreaFar, [])
+    return
+  }
+
+  const cameraSide = cameraReferenceSide()
+  const meanAnomalySpan = TWO_PI * sweepIntervalFraction
+  const sampleCount = Math.max(
+    1,
+    Math.ceil(192 * sweepIntervalFraction),
+  )
+  const arcPoints: THREE.Vector3[] = []
+
+  for (let index = 0; index <= sampleCount; index += 1) {
+    const fraction = index / sampleCount
+    const sampleMeanAnomaly =
+      meanAnomalyRadians -
+      meanAnomalySpan +
+      meanAnomalySpan * fraction
+    const sampleTrueAnomaly = trueAnomalyFromMeanAnomaly(
+      sampleMeanAnomaly,
+      state.e,
+    )
+
+    arcPoints.push(
+      positionAtTrueAnomaly(
+        THREE.MathUtils.radToDeg(sampleTrueAnomaly),
+      ),
+    )
+  }
+
+  const nearTriangles: THREE.Vector3[] = []
+  const farTriangles: THREE.Vector3[] = []
+  const origin = new THREE.Vector3(0, 0, 0)
+  const epsilon = 1e-9
+
+  const appendTriangle = (
+    target: THREE.Vector3[],
+    first: THREE.Vector3,
+    second: THREE.Vector3,
+  ): void => {
+    target.push(origin.clone(), first.clone(), second.clone())
+  }
+
+  for (let index = 0; index < arcPoints.length - 1; index += 1) {
+    const start = arcPoints[index]
+    const end = arcPoints[index + 1]
+    const startSignedHeight = cameraSide * start.z
+    const endSignedHeight = cameraSide * end.z
+    const startNear = startSignedHeight >= -epsilon
+    const endNear = endSignedHeight >= -epsilon
+
+    if (startNear === endNear) {
+      appendTriangle(
+        startNear ? nearTriangles : farTriangles,
+        start,
+        end,
+      )
+      continue
+    }
+
+    const denominator = start.z - end.z
+    const crossingFraction =
+      Math.abs(denominator) < epsilon
+        ? 0.5
+        : THREE.MathUtils.clamp(start.z / denominator, 0, 1)
+    const crossing = start.clone().lerp(end, crossingFraction)
+
+    appendTriangle(
+      startNear ? nearTriangles : farTriangles,
+      start,
+      crossing,
+    )
+    appendTriangle(
+      endNear ? nearTriangles : farTriangles,
+      crossing,
+      end,
+    )
+  }
+
+  setTriangleGeometry(sweptAreaNear, nearTriangles)
+  setTriangleGeometry(sweptAreaFar, farTriangles)
+}
+
 function syncTrueAnomalyInputs(): void {
   const displayValue = state.nu.toFixed(1)
 
@@ -618,6 +768,7 @@ function updateScene(): void {
   updateOrbitDepthCue(orbitPoints)
 
   updateCurrentPosition()
+  updateSweptArea()
 
   const planeRadius = Math.max(1, state.a * (1 + state.e) * 1.08)
   orbitalPlane.geometry.dispose()
@@ -707,6 +858,35 @@ function bindPlaybackRateInputs(): void {
   })
 }
 
+function bindSweepIntervalInputs(): void {
+  const inputs = [
+    document.querySelector<HTMLInputElement>('#range-sweep-interval'),
+    document.querySelector<HTMLInputElement>('#number-sweep-interval'),
+  ].filter((input): input is HTMLInputElement => input !== null)
+
+  inputs.forEach((input) => {
+    input.addEventListener('input', () => {
+      const requestedValue = Number(input.value)
+
+      if (!Number.isFinite(requestedValue)) {
+        return
+      }
+
+      sweepIntervalFraction = THREE.MathUtils.clamp(
+        requestedValue,
+        0,
+        1,
+      )
+
+      inputs.forEach((peer) => {
+        peer.value = sweepIntervalFraction.toFixed(3)
+      })
+
+      updateSweptArea()
+    })
+  })
+}
+
 function bindVisibilityToggle(id: string, object: THREE.Object3D): void {
   const checkbox = document.querySelector<HTMLInputElement>(`#${id}`)
   if (!checkbox) {
@@ -727,6 +907,8 @@ function resetView(): void {
 
 bindElementInputs()
 bindPlaybackRateInputs()
+bindSweepIntervalInputs()
+bindVisibilityToggle('swept-area', sweptAreaGroup)
 bindVisibilityToggle('reference-plane', referenceGrid)
 bindVisibilityToggle('orbit-plane', orbitalPlane)
 bindVisibilityToggle('nodes', nodesGroup)
@@ -773,12 +955,14 @@ function animate(timestamp: number): void {
 
     syncTrueAnomalyInputs()
     updateCurrentPosition()
+    updateSweptArea()
   }
 
   lastAnimationTimestamp = timestamp
 
   if (cameraReferenceSide() !== lastCameraReferenceSide) {
     updateOrbitDepthCue()
+    updateSweptArea()
   }
 
   star.rotation.z += 0.001
