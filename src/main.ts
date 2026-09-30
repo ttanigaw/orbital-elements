@@ -23,6 +23,7 @@ const state: OrbitalElements = {
 const TWO_PI = 2 * Math.PI
 const ONE_AU_ORBIT_SECONDS = 4
 let playbackRate = 1
+let isOrbitPlaying = true
 let sweepIntervalFraction = 1 / 8
 
 const app = document.querySelector<HTMLDivElement>('#app')
@@ -91,7 +92,17 @@ app.innerHTML = `
         <div class="eyebrow">ASTRO-NAVIGATION SYSTEM // ORBITAL SOLUTION</div>
         <h1>ORBITAL ELEMENT VISUALIZER</h1>
       </div>
-      <button id="reset-view" class="hud-button" type="button">RESET VIEW</button>
+      <div class="topbar-actions">
+        <button
+          id="toggle-orbit-playback"
+          class="hud-button playback-button"
+          type="button"
+          aria-pressed="false"
+        >
+          PAUSE
+        </button>
+        <button id="reset-view" class="hud-button" type="button">RESET VIEW</button>
+      </div>
     </header>
 
     <main>
@@ -1075,6 +1086,20 @@ bindVisibilityToggle('apsides', apsidesGroup)
 bindVisibilityToggle('radial', radialLine)
 bindVisibilityToggle('axes', axesGroup)
 
+const playbackButton = document.querySelector<HTMLButtonElement>(
+  '#toggle-orbit-playback',
+)
+
+playbackButton?.addEventListener('click', () => {
+  isOrbitPlaying = !isOrbitPlaying
+  playbackButton.textContent = isOrbitPlaying ? 'PAUSE' : 'PLAY'
+  playbackButton.setAttribute(
+    'aria-pressed',
+    String(!isOrbitPlaying),
+  )
+  playbackButton.classList.toggle('is-paused', !isOrbitPlaying)
+})
+
 document.querySelector<HTMLButtonElement>('#reset-view')?.addEventListener('click', resetView)
 
 function resize(): void {
@@ -1097,7 +1122,7 @@ function animate(timestamp: number): void {
   requestAnimationFrame(animate)
   controls.update()
 
-  if (lastAnimationTimestamp !== null) {
+  if (lastAnimationTimestamp !== null && isOrbitPlaying) {
     const deltaSeconds = Math.min(
       (timestamp - lastAnimationTimestamp) / 1000,
       0.1,
