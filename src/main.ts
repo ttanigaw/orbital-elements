@@ -365,17 +365,35 @@ axesGroup.add(
 )
 scene.add(axesGroup)
 
-const orbitalPlane = new THREE.Mesh(
-  new THREE.CircleGeometry(1, 128),
-  new THREE.MeshBasicMaterial({
-    color: 0x00d9ff,
-    transparent: true,
-    opacity: 0.04,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  }),
+const orbitalPlaneUpperMaterial = new THREE.MeshBasicMaterial({
+  color: 0x13b8d8,
+  transparent: true,
+  opacity: 0.14,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+})
+
+const orbitalPlaneLowerMaterial = new THREE.MeshBasicMaterial({
+  color: 0x13b8d8,
+  transparent: true,
+  opacity: 0.055,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+})
+
+const orbitalPlaneUpper = new THREE.Mesh(
+  new THREE.CircleGeometry(1, 128, 0, Math.PI),
+  orbitalPlaneUpperMaterial,
 )
-scene.add(orbitalPlane)
+
+const orbitalPlaneLower = new THREE.Mesh(
+  new THREE.CircleGeometry(1, 128, Math.PI, Math.PI),
+  orbitalPlaneLowerMaterial,
+)
+
+const orbitalPlaneGroup = new THREE.Group()
+orbitalPlaneGroup.add(orbitalPlaneLower, orbitalPlaneUpper)
+scene.add(orbitalPlaneGroup)
 
 const orbitNearMaterial = new THREE.LineBasicMaterial({
   color: 0x32e6ff,
@@ -910,6 +928,20 @@ function updateCurrentPosition(): void {
   setText('apoapsis-value', `${apoapsisDistance.toFixed(3)} AU`)
 }
 
+function updateOrbitalPlaneDepthCue(): void {
+  const cameraSide = cameraReferenceSide()
+  const nearOpacity = 0.14
+  const farOpacity = 0.055
+
+  if (cameraSide > 0) {
+    orbitalPlaneUpperMaterial.opacity = nearOpacity
+    orbitalPlaneLowerMaterial.opacity = farOpacity
+  } else {
+    orbitalPlaneUpperMaterial.opacity = farOpacity
+    orbitalPlaneLowerMaterial.opacity = nearOpacity
+  }
+}
+
 function updateScene(): void {
   const samples = 512
   const orbitPoints: THREE.Vector3[] = []
@@ -934,9 +966,22 @@ function updateScene(): void {
   updateSweptArea()
 
   const planeRadius = Math.max(1, state.a * (1 + state.e) * 1.08)
-  orbitalPlane.geometry.dispose()
-  orbitalPlane.geometry = new THREE.CircleGeometry(planeRadius, 128)
-  orbitalPlane.setRotationFromMatrix(orbitalPlaneRotationMatrix())
+  orbitalPlaneUpper.geometry.dispose()
+  orbitalPlaneUpper.geometry = new THREE.CircleGeometry(
+    planeRadius,
+    128,
+    0,
+    Math.PI,
+  )
+  orbitalPlaneLower.geometry.dispose()
+  orbitalPlaneLower.geometry = new THREE.CircleGeometry(
+    planeRadius,
+    128,
+    Math.PI,
+    Math.PI,
+  )
+  orbitalPlaneGroup.setRotationFromMatrix(orbitalPlaneRotationMatrix())
+  updateOrbitalPlaneDepthCue()
 
   const nodeLongitude = degreesToRadians(state.Omega)
   const nodeDirection = new THREE.Vector3(
@@ -1080,7 +1125,7 @@ bindSweepIntervalInputs()
 bindVisibilityToggle('swept-area', sweptAreaGroup)
 bindVisibilityToggle('reference-circle', referenceCircleGroup)
 bindVisibilityToggle('reference-plane', referenceGrid)
-bindVisibilityToggle('orbit-plane', orbitalPlane)
+bindVisibilityToggle('orbit-plane', orbitalPlaneGroup)
 bindVisibilityToggle('nodes', nodesGroup)
 bindVisibilityToggle('apsides', apsidesGroup)
 bindVisibilityToggle('radial', radialLine)
@@ -1147,6 +1192,7 @@ function animate(timestamp: number): void {
   if (cameraReferenceSide() !== lastCameraReferenceSide) {
     updateOrbitDepthCue()
     updateReferenceCircleDepthCue()
+    updateOrbitalPlaneDepthCue()
     updateSweptArea()
   }
 
