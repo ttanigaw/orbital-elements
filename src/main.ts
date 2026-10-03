@@ -25,6 +25,7 @@ const ONE_AU_ORBIT_SECONDS = 4
 let playbackRate = 1
 let isOrbitPlaying = true
 let sweepIntervalFraction = 0.1
+let planetRadiusFraction = 0.05
 
 const app = document.querySelector<HTMLDivElement>('#app')
 
@@ -73,12 +74,16 @@ function elementControl(
   `
 }
 
-function displayToggle(id: string, label: string): string {
+function displayToggle(
+  id: string,
+  label: string,
+  checked = true,
+): string {
   return `
     <label class="toggle-row" for="${id}">
       <span>${label}</span>
       <span class="switch">
-        <input id="${id}" type="checkbox" checked />
+        <input id="${id}" type="checkbox" ${checked ? "checked" : ""} />
         <span class="switch-track"></span>
       </span>
     </label>
@@ -126,6 +131,7 @@ app.innerHTML = `
           ${displayToggle('radial', 'POSITION VECTOR')}
           ${displayToggle('swept-area', 'KEPLER SWEPT AREA')}
           ${displayToggle('reference-circle', 'CIRCULAR ORBIT (a)')}
+          ${displayToggle('planet-plane-sweep', 'PLANET PLANE SWEEP', false)}
           ${displayToggle('axes', 'XYZ AXES')}
         </section>
 
@@ -170,6 +176,34 @@ app.innerHTML = `
             />
           </div>
           <div class="data-row"><span>1 AU PERIOD @ 1×</span><strong>4.0 s</strong></div>
+          <div class="control">
+            <div class="control-heading">
+              <label for="range-planet-radius">PLANET RADIUS Rp/a</label>
+              <div class="numeric">
+                <input
+                  id="number-planet-radius"
+                  class="number-input"
+                  type="number"
+                  min="0"
+                  max="0.2"
+                  step="0.005"
+                  value="0.05"
+                  aria-label="Planet radius as a fraction of semimajor axis"
+                />
+                <span>a</span>
+              </div>
+            </div>
+            <input
+              id="range-planet-radius"
+              class="slider"
+              type="range"
+              min="0"
+              max="0.2"
+              step="0.005"
+              value="0.05"
+              aria-label="Planet radius as a fraction of semimajor axis"
+            />
+          </div>
           <div class="control">
             <div class="control-heading">
               <label for="range-sweep-interval">SWEEP INTERVAL Δt/T</label>
@@ -453,7 +487,7 @@ let currentReferenceCirclePoints: THREE.Vector3[] = []
 let lastCameraReferenceSide: 1 | -1 = 1
 
 const body = new THREE.Mesh(
-  new THREE.SphereGeometry(0.085, 24, 24),
+  new THREE.SphereGeometry(1, 24, 24),
   new THREE.MeshStandardMaterial({
     color: 0xffc65a,
     emissive: 0xff7b00,
@@ -505,6 +539,37 @@ const sweptAreaFar = new THREE.Mesh(
 const sweptAreaGroup = new THREE.Group()
 sweptAreaGroup.add(sweptAreaFar, sweptAreaNear)
 scene.add(sweptAreaGroup)
+
+const PLANET_SWEEP_TEXTURE_SIZE = 768
+const planetSweepCanvas = document.createElement('canvas')
+planetSweepCanvas.width = PLANET_SWEEP_TEXTURE_SIZE
+planetSweepCanvas.height = PLANET_SWEEP_TEXTURE_SIZE
+const planetSweepContext = planetSweepCanvas.getContext('2d')
+
+if (!planetSweepContext) {
+  throw new Error('Unable to create planet sweep texture')
+}
+
+const planetSweepTexture = new THREE.CanvasTexture(planetSweepCanvas)
+planetSweepTexture.colorSpace = THREE.SRGBColorSpace
+planetSweepTexture.minFilter = THREE.LinearFilter
+planetSweepTexture.magFilter = THREE.LinearFilter
+
+const planetPlaneSweep = new THREE.Mesh(
+  new THREE.PlaneGeometry(2, 2),
+  new THREE.MeshBasicMaterial({
+    map: planetSweepTexture,
+    transparent: true,
+    opacity: 0.28,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+  }),
+)
+planetPlaneSweep.visible = false
+planetPlaneSweep.renderOrder = 1
+scene.add(planetPlaneSweep)
 
 function marker(color: number): THREE.Mesh {
   return new THREE.Mesh(
@@ -890,6 +955,63 @@ function updateSweptArea(): void {
   setTriangleGeometry(sweptAreaFar, farTriangles)
 }
 
+function updatePlanetPlaneSweep(): void {
+  const planetRadius = planetRadiusFraction * state.a
+  const extent = Math.max(
+    1,
+    state.a * (1 + state.e) + planetRadius,
+  ) * 1.06
+
+  planetSweepContext.clearRect(
+    0,
+    0,
+    PLANET_SWEEP_TEXTURE_SIZE,
+    PLANET_SWEEP_TEXTURE_SIZE,
+  )
+
+  if (planetRadius > 0) {
+    planetSweepContext.fillStyle = 'rgba(255, 104, 82, 1)'
+    const samples = 2048
+
+    for (let index = 0; index < samples; index += 1) {
+      const trueAnomalyDegrees = (360 * index) / samples
+      const position = positionAtTrueAnomaly(trueAnomalyDegrees)
+      const height = Math.abs(position.z)
+
+      if (height > planetRadius) {
+        continue
+      }
+
+      const intersectionRadius = Math.sqrt(
+        Math.max(0, planetRadius * planetRadius - height * height),
+      )
+      const centerX =
+        ((position.x + extent) / (2 * extent)) * PLANET_SWEEP_TEXTURE_SIZE
+      const centerY =
+        ((extent - position.y) / (2 * extent)) * PLANET_SWEEP_TEXTURE_SIZE
+      const radiusPixels =
+        (intersectionRadius / (2 * extent)) * PLANET_SWEEP_TEXTURE_SIZE
+
+      planetSweepContext.beginPath()
+      planetSweepContext.arc(
+        centerX,
+        centerY,
+        radiusPixels,
+        0,
+        TWO_PI,
+      )
+      planetSweepContext.fill()
+    }
+  }
+
+  planetSweepTexture.needsUpdate = true
+  planetPlaneSweep.geometry.dispose()
+  planetPlaneSweep.geometry = new THREE.PlaneGeometry(
+    2 * extent,
+    2 * extent,
+  )
+}
+
 function syncTrueAnomalyInputs(): void {
   const displayValue = state.nu.toFixed(1)
 
@@ -903,6 +1025,7 @@ function syncTrueAnomalyInputs(): void {
 function updateCurrentPosition(): void {
   const currentPosition = positionAtTrueAnomaly(state.nu)
   body.position.copy(currentPosition)
+  body.scale.setScalar(planetRadiusFraction * state.a)
 
   const radialPositions = radialGeometry.getAttribute(
     'position',
@@ -964,6 +1087,7 @@ function updateScene(): void {
 
   updateCurrentPosition()
   updateSweptArea()
+  updatePlanetPlaneSweep()
 
   const planeRadius = Math.max(1, state.a * (1 + state.e) * 1.08)
   orbitalPlaneUpper.geometry.dispose()
@@ -1101,11 +1225,43 @@ function bindSweepIntervalInputs(): void {
   })
 }
 
+function bindPlanetRadiusInputs(): void {
+  const inputs = [
+    document.querySelector<HTMLInputElement>('#range-planet-radius'),
+    document.querySelector<HTMLInputElement>('#number-planet-radius'),
+  ].filter((input): input is HTMLInputElement => input !== null)
+
+  inputs.forEach((input) => {
+    input.addEventListener('input', () => {
+      const requestedValue = Number(input.value)
+
+      if (!Number.isFinite(requestedValue)) {
+        return
+      }
+
+      planetRadiusFraction = THREE.MathUtils.clamp(
+        requestedValue,
+        0,
+        0.2,
+      )
+
+      inputs.forEach((peer) => {
+        peer.value = planetRadiusFraction.toFixed(3)
+      })
+
+      updateCurrentPosition()
+      updatePlanetPlaneSweep()
+    })
+  })
+}
+
 function bindVisibilityToggle(id: string, object: THREE.Object3D): void {
   const checkbox = document.querySelector<HTMLInputElement>(`#${id}`)
   if (!checkbox) {
     return
   }
+
+  object.visible = checkbox.checked
 
   checkbox.addEventListener('change', () => {
     object.visible = checkbox.checked
@@ -1122,6 +1278,8 @@ function resetView(): void {
 bindElementInputs()
 bindPlaybackRateInputs()
 bindSweepIntervalInputs()
+bindPlanetRadiusInputs()
+bindVisibilityToggle('planet-plane-sweep', planetPlaneSweep)
 bindVisibilityToggle('swept-area', sweptAreaGroup)
 bindVisibilityToggle('reference-circle', referenceCircleGroup)
 bindVisibilityToggle('reference-plane', referenceGrid)
