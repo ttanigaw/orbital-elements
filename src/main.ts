@@ -544,11 +544,14 @@ const PLANET_SWEEP_TEXTURE_SIZE = 768
 const planetSweepCanvas = document.createElement('canvas')
 planetSweepCanvas.width = PLANET_SWEEP_TEXTURE_SIZE
 planetSweepCanvas.height = PLANET_SWEEP_TEXTURE_SIZE
-const planetSweepContext = planetSweepCanvas.getContext('2d')
+const planetSweepContextResult = planetSweepCanvas.getContext('2d')
 
-if (!planetSweepContext) {
+if (!planetSweepContextResult) {
   throw new Error('Unable to create planet sweep texture')
 }
+
+const planetSweepContext: CanvasRenderingContext2D =
+  planetSweepContextResult
 
 const planetSweepTexture = new THREE.CanvasTexture(planetSweepCanvas)
 planetSweepTexture.colorSpace = THREE.SRGBColorSpace
